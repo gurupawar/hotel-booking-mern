@@ -1,16 +1,13 @@
 import express, { Request, Response } from "express";
-import User from "../models/user";
-import jwt from "jsonwebtoken";
-import { check, validationResult } from "express-validator";
-
 const router = express.Router();
+import { check, validationResult } from "express-validator";
+import User from "../models/user";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
-// /api/users/register
 router.post(
-  "/register",
+  "/login",
   [
-    check("firstName", "First name is required").isString(),
-    check("lastName", "Last name is required").isString(),
     check("email", "Email is required").isEmail(),
     check("password", "Password with 6 or more characters required").isLength({
       min: 6,
@@ -18,22 +15,23 @@ router.post(
   ],
   async (req: Request, res: Response) => {
     const errors = validationResult(req);
+
     if (!errors.isEmpty()) {
       return res.status(400).send({ message: errors.array() });
     }
-    try {
-      let user = await User.findOne({
-        email: req.body.email,
-      });
 
-      if (user) {
-        return res.status(400).json({
-          message: "User already exists",
-        });
+    const { email, password } = req.body;
+
+    try {
+      const user = await User.findOne({ email });
+      if (!user) {
+        return res.status(400).send({ message: "Invalid Credentials" });
       }
 
-      user = new User(req.body);
-      await user.save();
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        return res.status(400).send({ message: "Invalid Credentials" });
+      }
 
       const token = jwt.sign(
         { userId: user.id },
@@ -42,14 +40,16 @@ router.post(
           expiresIn: "1d",
         }
       );
+
       res.cookie("auth_token", token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        maxAge: 8640000,
+        maxAge: 86400000,
       });
 
-      return res.status(200).send({ message: "User created successfully" });
+      res.status(200).json({ userId: user.id });
     } catch (error) {
+      console.log(error);
       res.status(500).send({ message: "Something went wrong" });
     }
   }
